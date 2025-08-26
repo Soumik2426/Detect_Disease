@@ -1,0 +1,16 @@
+version: '3.8'
+
+services:
+  disease-beta:
+    image: disease-beta
+    container_name: disease-beta
+    ports:
+      - "6701:6701"  # Fixed port
+    restart: always  # Ensures auto-start after reboot
+
+  disease-prod:
+    image: disease-prod
+    container_name: disease-prod
+    ports:
+      - "6700:6700"  # Fixed port
+    restart: always  # Ensures auto-start after reboot
