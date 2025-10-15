@@ -4,3 +4,5 @@ uvicorn>=0.29,<0.30
 numpy>=1.22,<1.26
 pillow>=9.0,<11.0
 python-multipart>=0.0.6
+requests>=2.31,<3
+tf-keras>=2.17.0
