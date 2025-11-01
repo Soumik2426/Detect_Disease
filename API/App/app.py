@@ -1,3 +1,6 @@
+import os
+os.environ["TF_CPP_MIN_LOG_LEVEL"] = "2"
+
 from fastapi import FastAPI, File, UploadFile, Header, HTTPException
 import numpy as np
 import requests
@@ -39,6 +42,44 @@ INFERENCE_MODE = os.getenv("INFERENCE_MODE", "local").lower()  # default: local 
 _default_models_dir = "/app/Models" if os.path.isdir("/app/Models") else os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "Models"))
 PRODUCTION_MODEL_PATH = os.getenv("PRODUCTION_MODEL_PATH", os.path.join(_default_models_dir, "universal2.keras"))
 BETA_MODEL_PATH = os.getenv("BETA_MODEL_PATH", os.path.join(_default_models_dir, "universal3.keras"))
+
+# --- Auto-download models from Google Drive if missing ---
+import requests
+
+def download_if_missing(url, dest):
+    """Download large file from Google Drive if it's not already present."""
+    if os.path.exists(dest):
+        print(f"✅ Model already exists at {dest}")
+        return
+
+    print(f"📦 Downloading model from {url} ...")
+    session = requests.Session()
+    response = session.get(url, stream=True)
+    
+    # Handle Google Drive virus scan confirmation token
+    if "confirm=" not in url and "drive.google.com" in url:
+        for key, value in response.cookies.items():
+            if key.startswith("download_warning"):
+                url = url + "&confirm=" + value
+                response = session.get(url, stream=True)
+                break
+
+    response.raise_for_status()
+    os.makedirs(os.path.dirname(dest), exist_ok=True)
+
+    with open(dest, "wb") as f:
+        for chunk in response.iter_content(32768):
+            if chunk:
+                f.write(chunk)
+
+    print(f"✅ Model downloaded and saved to {dest}")
+
+# Replace YOUR_FILE_ID_1 and YOUR_FILE_ID_2 with actual Drive IDs
+PRODUCTION_MODEL_URL = "https://drive.google.com/uc?export=download&id=1uROM2NGMpxnoTksBKkijem8IucOhC8dS"
+BETA_MODEL_URL = "https://drive.google.com/uc?export=download&id=1p8BjCHcG_38eyH9C4locAT_OY9tantlB"
+
+download_if_missing(PRODUCTION_MODEL_URL, PRODUCTION_MODEL_PATH)
+download_if_missing(BETA_MODEL_URL, BETA_MODEL_PATH)
 
 # Lazy-loaded local models with a lock
 _local_models = {"production": None, "beta": None}
@@ -83,12 +124,15 @@ async def ping():
 async def ready():
     """Readiness and routing info."""
     return {
+        "status": "ready",
         "inference_mode": INFERENCE_MODE,
         "tf_serving_url": TF_SERVING_URL,
         "production_model": PRODUCTION_MODEL_NAME,
         "beta_model": BETA_MODEL_NAME,
-        "local_production_model_path": PRODUCTION_MODEL_PATH,
-        "local_beta_model_path": BETA_MODEL_PATH
+        "local_production_model_exists": os.path.isfile(PRODUCTION_MODEL_PATH),
+        "local_beta_model_exists": os.path.isfile(BETA_MODEL_PATH),
+        "production_model_path": PRODUCTION_MODEL_PATH,
+        "beta_model_path": BETA_MODEL_PATH
     }
 
 
