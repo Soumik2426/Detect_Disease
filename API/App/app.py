@@ -3,6 +3,8 @@ os.environ["TF_CPP_MIN_LOG_LEVEL"] = "2"
 
 from fastapi import FastAPI, File, UploadFile, Header, HTTPException
 import numpy as np
+import os
+import gdown
 import requests
 import json
 from io import BytesIO
@@ -46,44 +48,18 @@ BETA_MODEL_PATH = os.getenv("BETA_MODEL_PATH", os.path.join(_default_models_dir,
 # --- Auto-download models from Google Drive if missing ---
 import requests
 
-def download_if_missing(url, dest):
-    """Download large file from Google Drive with token handling."""
-    if os.path.exists(dest) and os.path.getsize(dest) > 10_000:
-        print(f"✅ Model already exists at {dest}")
-        return
-
-    print(f"📦 Downloading model from {url} ...")
-    session = requests.Session()
-    response = session.get(url, stream=True)
-    token = None
-
-    # Handle the Google Drive warning token
-    for key, value in response.cookies.items():
-        if key.startswith("download_warning"):
-            token = value
-            break
-
-    if token:
-        params = {"confirm": token}
-        response = session.get(url, params=params, stream=True)
-
-    response.raise_for_status()
-    os.makedirs(os.path.dirname(dest), exist_ok=True)
-
-    with open(dest, "wb") as f:
-        for chunk in response.iter_content(32768):
-            if chunk:
-                f.write(chunk)
-
-    size = os.path.getsize(dest)
-    if size < 10_000:
-        raise Exception(f"Downloaded file too small ({size} bytes). Possible permission issue with Google Drive link.")
-    print(f"✅ Model downloaded and saved to {dest} ({size / 1_000_000:.2f} MB)")
+def download_if_missing(url, path):
+    if not os.path.exists(path):
+        print(f"📦 Downloading model from {url} ...")
+        gdown.download(url, path, quiet=False, fuzzy=True)
+        if not os.path.exists(path) or os.path.getsize(path) < 10000:
+            raise Exception("❌ Model download failed or file too small. Check Google Drive permissions.")
+        print(f"✅ Model downloaded and saved to {path}")
 
 
 # Replace YOUR_FILE_ID_1 and YOUR_FILE_ID_2 with actual Drive IDs
-PRODUCTION_MODEL_URL = "https://drive.google.com/uc?export=download&id=1uROM2NGMpxnoTksBKkijem8IucOhC8dS"
-BETA_MODEL_URL = "https://drive.google.com/uc?export=download&id=1p8BjCHcG_38eyH9C4locAT_OY9tantlB"
+PRODUCTION_MODEL_URL = "https://drive.google.com/file/d/1uROM2NGMpxnoTksBKkijem8IucOhC8dS/view?usp=sharing"
+BETA_MODEL_URL = "https://drive.google.com/file/d/1p8BjCHcG_38eyH9C4locAT_OY9tantlB/view?usp=sharing"
 
 download_if_missing(PRODUCTION_MODEL_URL, PRODUCTION_MODEL_PATH)
 download_if_missing(BETA_MODEL_URL, BETA_MODEL_PATH)
