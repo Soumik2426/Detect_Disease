@@ -47,22 +47,25 @@ BETA_MODEL_PATH = os.getenv("BETA_MODEL_PATH", os.path.join(_default_models_dir,
 import requests
 
 def download_if_missing(url, dest):
-    """Download large file from Google Drive if it's not already present."""
-    if os.path.exists(dest):
+    """Download large file from Google Drive with token handling."""
+    if os.path.exists(dest) and os.path.getsize(dest) > 10_000:
         print(f"✅ Model already exists at {dest}")
         return
 
     print(f"📦 Downloading model from {url} ...")
     session = requests.Session()
     response = session.get(url, stream=True)
-    
-    # Handle Google Drive virus scan confirmation token
-    if "confirm=" not in url and "drive.google.com" in url:
-        for key, value in response.cookies.items():
-            if key.startswith("download_warning"):
-                url = url + "&confirm=" + value
-                response = session.get(url, stream=True)
-                break
+    token = None
+
+    # Handle the Google Drive warning token
+    for key, value in response.cookies.items():
+        if key.startswith("download_warning"):
+            token = value
+            break
+
+    if token:
+        params = {"confirm": token}
+        response = session.get(url, params=params, stream=True)
 
     response.raise_for_status()
     os.makedirs(os.path.dirname(dest), exist_ok=True)
@@ -72,7 +75,11 @@ def download_if_missing(url, dest):
             if chunk:
                 f.write(chunk)
 
-    print(f"✅ Model downloaded and saved to {dest}")
+    size = os.path.getsize(dest)
+    if size < 10_000:
+        raise Exception(f"Downloaded file too small ({size} bytes). Possible permission issue with Google Drive link.")
+    print(f"✅ Model downloaded and saved to {dest} ({size / 1_000_000:.2f} MB)")
+
 
 # Replace YOUR_FILE_ID_1 and YOUR_FILE_ID_2 with actual Drive IDs
 PRODUCTION_MODEL_URL = "https://drive.google.com/uc?export=download&id=1uROM2NGMpxnoTksBKkijem8IucOhC8dS"
