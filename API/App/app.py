@@ -3,15 +3,14 @@ os.environ["TF_CPP_MIN_LOG_LEVEL"] = "2"
 
 from fastapi import FastAPI, File, UploadFile, Header, HTTPException
 import numpy as np
-import os
 import gdown
 import requests
 import json
 from io import BytesIO
 from PIL import Image
 from starlette.middleware.cors import CORSMiddleware
-import os
 import threading
+
 try:
     import tensorflow as tf  # primary path: always use tensorflow.keras
 except Exception:
@@ -19,7 +18,7 @@ except Exception:
 
 app = FastAPI()
 
-# Enable CORS
+# ------------------ Enable CORS ------------------
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -28,84 +27,88 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Class names for prediction output
+# ------------------ Class Labels ------------------
 CLASS_NAMES = [
     "Bacterial Blight", "Cercospora", "Healthy Coffee Leaf", "Healthy Sugarcane Leaf",
     "Mosaic", "RedRot", "Rust Coffee Leaf", "Rust Sugarcane Leaf", "Yellow"
 ]
 
-# TensorFlow Serving configuration (override via environment variables)
+# ------------------ Config ------------------
 TF_SERVING_URL = os.getenv("TF_SERVING_URL", "http://localhost:8501/v1/models")
 PRODUCTION_MODEL_NAME = os.getenv("PRODUCTION_MODEL_NAME", "Production_Model")
 BETA_MODEL_NAME = os.getenv("BETA_MODEL_NAME", "Beta_Model")
-INFERENCE_MODE = os.getenv("INFERENCE_MODE", "local").lower()  # default: local for out-of-the-box usage
+INFERENCE_MODE = os.getenv("INFERENCE_MODE", "local").lower()  # default local
 
-# Local model paths (used when INFERENCE_MODE == 'local' or TF Serving unavailable)
-_default_models_dir = "/app/Models" if os.path.isdir("/app/Models") else os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "Models"))
-PRODUCTION_MODEL_PATH = os.getenv("PRODUCTION_MODEL_PATH", os.path.join(_default_models_dir, "universal2.keras"))
-BETA_MODEL_PATH = os.getenv("BETA_MODEL_PATH", os.path.join(_default_models_dir, "universal3.keras"))
+# ------------------ Paths ------------------
+# Base directory = Disease/API/App
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
-# --- Auto-download models from Google Drive if missing ---
-import requests
+# Models directory = Disease/API/Models
+MODELS_DIR = os.path.abspath(os.path.join(BASE_DIR, "..", "Models"))
+os.makedirs(MODELS_DIR, exist_ok=True)
 
+# Model file paths
+PRODUCTION_MODEL_PATH = os.path.join(MODELS_DIR, "universal2.keras")
+BETA_MODEL_PATH = os.path.join(MODELS_DIR, "universal3.keras")
+
+# ------------------ Google Drive URLs ------------------
+PRODUCTION_MODEL_URL = "https://drive.google.com/uc?export=download&id=1uROM2NGMpxnoTksBKkijem8IucOhC8dS"
+BETA_MODEL_URL = "https://drive.google.com/uc?export=download&id=1p8BjCHcG_38eyH9C4locAT_OY9tantlB"
+
+# ------------------ Auto-download if Missing ------------------
 def download_if_missing(url, path):
+    """Download file if not present."""
     if not os.path.exists(path):
         print(f"📦 Downloading model from {url} ...")
-        gdown.download(url, path, quiet=False, fuzzy=True)
+        try:
+            gdown.download(url, path, quiet=False)
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Model download failed: {str(e)}")
+
         if not os.path.exists(path) or os.path.getsize(path) < 10000:
-            raise Exception("❌ Model download failed or file too small. Check Google Drive permissions.")
+            raise HTTPException(status_code=500, detail=f"Model download failed or incomplete: {path}")
         print(f"✅ Model downloaded and saved to {path}")
-
-
-# Replace YOUR_FILE_ID_1 and YOUR_FILE_ID_2 with actual Drive IDs
-PRODUCTION_MODEL_URL = "https://drive.google.com/file/d/1uROM2NGMpxnoTksBKkijem8IucOhC8dS/view?usp=sharing"
-BETA_MODEL_URL = "https://drive.google.com/file/d/1p8BjCHcG_38eyH9C4locAT_OY9tantlB/view?usp=sharing"
+    else:
+        print(f"✅ Model already exists at {path}")
 
 download_if_missing(PRODUCTION_MODEL_URL, PRODUCTION_MODEL_PATH)
 download_if_missing(BETA_MODEL_URL, BETA_MODEL_PATH)
 
-# Lazy-loaded local models with a lock
+# ------------------ Model Loading ------------------
 _local_models = {"production": None, "beta": None}
 _model_lock = threading.Lock()
 
-
 def _load_model_robust(model_path: str):
-    """Load a Keras model trying multiple backends for maximum compatibility."""
+    """Load a Keras model trying multiple backends for compatibility."""
     last_error = None
-    # 1) Prefer tf_keras.saving.load_model (matches TF-Keras 2.x format)
+    # 1. Try tf_keras.saving.load_model (TensorFlow 2.x)
     try:
         import tf_keras  # type: ignore
         if hasattr(tf_keras, "saving") and hasattr(tf_keras.saving, "load_model"):
+            print(f"Loading model via tf_keras from {model_path}")
             return tf_keras.saving.load_model(model_path, compile=False)
     except Exception as e:
         last_error = e
-    # 2) tensorflow.keras
+
+    # 2. Try tensorflow.keras
     try:
         if tf is not None and hasattr(tf, "keras"):
-            return tf.keras.models.load_model(model_path, compile=False)  # type: ignore[attr-defined]
+            print(f"Loading model via tensorflow.keras from {model_path}")
+            return tf.keras.models.load_model(model_path, compile=False)
     except Exception as e:
         last_error = e
-    raise HTTPException(status_code=500, detail=f"Local model load failed: {str(last_error)}")
+
+    raise HTTPException(status_code=500, detail=f"Model load failed: {str(last_error)}")
 
 
-if __name__ == "__main__":
-    # Allow running via: python app.py
-    import uvicorn
-    host = os.getenv("HOST", "0.0.0.0")
-    try:
-        port = int(os.getenv("PORT", "8700"))
-    except ValueError:
-        port = 8700
-    uvicorn.run("app:app", host=host, port=port)
-
+# ------------------ FastAPI Routes ------------------
 @app.get("/ping")
 async def ping():
     return {"status": "ok"}
 
-
 @app.get("/ready")
 async def ready():
-    """Readiness and routing info."""
+    """Readiness check & model paths."""
     return {
         "status": "ready",
         "inference_mode": INFERENCE_MODE,
@@ -118,43 +121,38 @@ async def ready():
         "beta_model_path": BETA_MODEL_PATH
     }
 
-
-INPUT_NORMALIZATION = os.getenv("INPUT_NORMALIZATION", "raw").lower()  # default: raw as per best results
+# ------------------ Image Preprocessing ------------------
+INPUT_NORMALIZATION = os.getenv("INPUT_NORMALIZATION", "raw").lower()
 
 def read_file_as_image(data) -> np.ndarray:
-    """Convert image bytes to an array with configurable normalization."""
-    image = Image.open(BytesIO(data)).convert("RGB")
-    image = image.resize((224, 224))  # Resize to match model input
-    arr = np.array(image)
+    """Convert uploaded image bytes into a numpy array."""
+    img = Image.open(BytesIO(data)).convert("RGB")
+    img = img.resize((224, 224))
+    arr = np.array(img)
     if INPUT_NORMALIZATION == "raw":
         return arr.astype(np.float32)
-    # default to unit scaling [0,1]
     return (arr / 255.0).astype(np.float32)
 
-
+# ------------------ Prediction Endpoint ------------------
 @app.post("/models:predict")
 async def predict(
     file: UploadFile = File(...),
-    x_model_version: str = Header(None)  # Change header name for consistency
+    x_model_version: str = Header(None)
 ):
-    """Handles image prediction requests."""
-
-    # Determine requested target (beta vs production)
+    """Image prediction endpoint."""
     is_beta = bool(x_model_version and x_model_version.lower() == "beta")
+    img = read_file_as_image(await file.read())
 
-    # Process image once
-    image = read_file_as_image(await file.read())
-
-    # Route selection
+    # Decide mode
     mode = INFERENCE_MODE
     if mode not in ("tfserving", "local"):
-        mode = "tfserving"  # try tfserving first in auto mode
+        mode = "tfserving"
 
-    # Try TF Serving first if requested
+    # Try TF Serving if enabled
     if mode == "tfserving":
         model_name = BETA_MODEL_NAME if is_beta else PRODUCTION_MODEL_NAME
         model_url = f"{TF_SERVING_URL}/{model_name}:predict"
-        payload = json.dumps({"instances": [image.tolist()]})
+        payload = json.dumps({"instances": [img.tolist()]})
         headers = {"content-type": "application/json"}
         try:
             response = requests.post(model_url, data=payload, headers=headers, timeout=10)
@@ -167,31 +165,40 @@ async def predict(
             return {"Class": predicted_class, "Confidence": confidence, "model": model_used}
         except requests.exceptions.RequestException:
             if INFERENCE_MODE == "tfserving":
-                raise HTTPException(status_code=502, detail="TensorFlow Serving unreachable and local fallback disabled (INFERENCE_MODE=tfserving)")
-            # fall through to local
+                raise HTTPException(status_code=502, detail="TF Serving unreachable (INFERENCE_MODE=tfserving)")
+            # fallback to local
 
-    # Local inference path
+    # Local Inference
     try:
         with _model_lock:
             key = "beta" if is_beta else "production"
             if _local_models[key] is None:
                 model_path = BETA_MODEL_PATH if is_beta else PRODUCTION_MODEL_PATH
                 if not os.path.isfile(model_path):
-                    raise HTTPException(status_code=500, detail=f"Local model file not found: {model_path}")
+                    raise HTTPException(status_code=500, detail=f"Model file missing: {model_path}")
                 _local_models[key] = _load_model_robust(model_path)
 
             model = _local_models[key]
 
-        # Model expects batch dimension
-        img_batch = np.expand_dims(image, 0)
-        predictions = model.predict(img_batch)
-        predictions = predictions[0]
+        img_batch = np.expand_dims(img, 0)
+        predictions = model.predict(img_batch)[0]
 
         predicted_class = CLASS_NAMES[int(np.argmax(predictions))]
         confidence = float(np.max(predictions))
         model_used = "beta" if is_beta else "production"
+
         return {"Class": predicted_class, "Confidence": confidence, "model": model_used}
     except HTTPException:
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Local inference error: {str(e)}")
+
+# ------------------ Main ------------------
+if __name__ == "__main__":
+    import uvicorn
+    host = os.getenv("HOST", "0.0.0.0")
+    try:
+        port = int(os.getenv("PORT", "8700"))
+    except ValueError:
+        port = 8700
+    uvicorn.run("app:app", host=host, port=port)
