@@ -187,7 +187,7 @@ async def predict(
         confidence = float(np.max(predictions))
         model_used = "beta" if is_beta else "production"
 
-        return {"Class": predicted_class, "Confidence": confidence, "model": model_used}
+        return {"Class": predicted_class, "Confidence": confidence}
     except HTTPException:
         raise
     except Exception as e:
@@ -195,10 +195,8 @@ async def predict(
 
 # ------------------ Main ------------------
 if __name__ == "__main__":
+    import os
     import uvicorn
-    host = os.getenv("HOST", "0.0.0.0")
-    try:
-        port = int(os.getenv("PORT", "8700"))
-    except ValueError:
-        port = 8700
-    uvicorn.run("app:app", host=host, port=port)
+
+    port = int(os.environ.get("PORT", 10000))  # use Render's PORT if available
+    uvicorn.run(app, host="0.0.0.0", port=port)
