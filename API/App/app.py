@@ -138,3 +138,10 @@ async def predict(file: UploadFile = File(...)):
             gc.collect()
 
     return {"Class": predicted_class, "Confidence": confidence}
+
+
+if __name__ == "__main__":
+    import uvicorn
+    import os
+    port = int(os.environ.get("PORT", 8000))  # default only if not running on Render
+    uvicorn.run("App.app:app", host="0.0.0.0", port=port)
