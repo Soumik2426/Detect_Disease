@@ -1,0 +1,9 @@
+services:
+  - type: web
+    name: fastapi-ai-model
+    env: python
+    buildCommand: pip install -r API/requirements.lock
+    startCommand: uvicorn API.App.app:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: PYTHONPATH
+        value: .
