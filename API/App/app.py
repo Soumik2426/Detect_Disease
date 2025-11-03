@@ -5,6 +5,7 @@ from fastapi import FastAPI, File, UploadFile, HTTPException
 import numpy as np
 import gdown
 import json
+import psutil
 from io import BytesIO
 from PIL import Image
 from starlette.middleware.cors import CORSMiddleware
@@ -100,6 +101,13 @@ async def ready():
         "local_production_model_exists": os.path.isfile(PRODUCTION_MODEL_PATH),
         "production_model_path": PRODUCTION_MODEL_PATH
     }
+    
+# ------------------ memory exhaustion ------------------
+@app.get("/mem")
+async def mem():
+    mem = psutil.virtual_memory()
+    return {"used_mb": mem.used / 1024**2, "available_mb": mem.available / 1024**2}
+
 
 # ------------------ Image Preprocessing ------------------
 INPUT_NORMALIZATION = os.getenv("INPUT_NORMALIZATION", "raw").lower()
