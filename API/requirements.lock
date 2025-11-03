@@ -78,6 +78,7 @@ tornado==6.5.1
 typing-inspection==0.4.2
 typing_extensions==4.14.1
 tzdata==2025.2
+psutil==5.9.8
 urllib3==2.5.0
 uvicorn==0.29.0
 watchdog==6.0.0
