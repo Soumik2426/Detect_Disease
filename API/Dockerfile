@@ -1,17 +1,20 @@
-# Use official lightweight Python image
+# Use official lightweight Python 3.10 image
 FROM python:3.10-slim
 
 # Set working directory
 WORKDIR /app
 
-# Copy files
+# Copy everything into the container
 COPY . /app
 
-# Install dependencies
-RUN pip install --no-cache-dir -r requirements.txt
+# Upgrade pip tools first
+RUN pip install --upgrade pip setuptools wheel
 
-# Expose port for FastAPI
+# Install all locked dependencies
+RUN pip install --no-cache-dir -r requirements.lock
+
+# Expose the FastAPI port
 EXPOSE 7860
 
-# Run the app
+# Run the FastAPI app
 CMD ["uvicorn", "App.app:app", "--host", "0.0.0.0", "--port", "7860"]
